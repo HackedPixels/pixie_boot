@@ -4,8 +4,9 @@ use crate::dhcp::options::*;
 use nom::bytes::complete::take;
 use nom::error::ErrorKind;
 use nom::multi::many0;
+use nom::multi::many_m_n;
 use nom::number::complete::{be_u16, be_u32, be_u8};
-use nom::{do_parse, take, IResult};
+use nom::IResult;
 use std::net::Ipv4Addr;
 
 macro_rules! nom_err_return (
@@ -20,50 +21,45 @@ macro_rules! nom_err_return (
 
 /// Parse a DHCP message
 pub fn parse_dhcp_message(i: &[u8]) -> IResult<&[u8], DHCPMessage> {
-    do_parse! {
+    //pub fn parse_dhcp_message(i: &[u8]) -> IResult<&[u8], ()> {
+    let (i, op) = be_u8(i)?;
+    let (i, htype) = be_u8(i)?;
+    let (i, hlen) = be_u8(i)?;
+    let (i, hops) = be_u8(i)?;
+    let (i, xid) = be_u32(i)?;
+    let (i, secs) = be_u16(i)?;
+    let (i, flags) = be_u16(i)?;
+    let (i, ciaddr) = parse_addr_v4(i)?;
+    let (i, yiaddr) = parse_addr_v4(i)?;
+    let (i, siaddr) = parse_addr_v4(i)?;
+    let (i, giaddr) = parse_addr_v4(i)?;
+    let (i, chaddr) = many_m_n(0, 16, be_u8);
+    let (i, sname) = take(64usize).into()?;
+    let (i, file) = take(128usize).into()?;
+    let (i, magic) = take(4usize).into()?;
+    let (i, options) = parse_options(i)?;
+
+    Ok((
         i,
-        op: be_u8 >>
-            htype:  be_u8 >>
-            hlen:   be_u8 >>
-            hops:   be_u8 >>
-            xid:    be_u32 >>
-            secs:   be_u16 >>
-            flags:  be_u16 >>
-            ciaddr: parse_addr_v4 >>
-            yiaddr: parse_addr_v4 >>
-            siaddr: parse_addr_v4 >>
-            giaddr: parse_addr_v4 >>
-            chaddr: take!(16) >>
-            sname: take!(64) >>
-            file: take!(128) >>
-
-            // options
-            magic: take!(4) >>
-            options: parse_options >>
-
-            // padding
-            _padding: parse_padding >>
-            (
-                DHCPMessage {
-                    op,
-                    htype,
-                    hlen,
-                    hops,
-                    xid,
-                    secs,
-                    flags,
-                    ciaddr,
-                    yiaddr,
-                    siaddr,
-                    giaddr,
-                    chaddr: chaddr.to_owned(),
-                    sname,
-                    file,
-                    magic: magic.to_owned(),
-                    options,
-                }
-            )
-    }
+        DHCPMessage {
+            op,
+            htype,
+            hlen,
+            hops,
+            xid,
+            secs,
+            flags,
+            ciaddr,
+            yiaddr,
+            siaddr,
+            giaddr,
+            chaddr,
+            sname,
+            file,
+            magic,
+            options,
+        },
+    ))
 }
 
 fn parse_addr_v4(i: &[u8]) -> IResult<&[u8], Ipv4Addr> {
@@ -81,15 +77,11 @@ fn parse_padding(i: &[u8]) -> IResult<&[u8], ()> {
 }
 
 fn parse_generic_option(i: &[u8]) -> IResult<&[u8], DHCPGenericOption> {
-    do_parse! {
-        i,
-        t: be_u8 >>
-            l: be_u8 >>
-            v: take!(l) >>
-            (
-                DHCPGenericOption {t, l, v}
-            )
-    }
+    let t = be_u8(i)?.1;
+    let l = be_u8(i)?.1;
+    let v = take(l)(i)?.1;
+
+    Ok((i, DHCPGenericOption { t, l, v }))
 }
 
 fn convert_generic_option<'a>(
